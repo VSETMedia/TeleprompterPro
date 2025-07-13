@@ -26,7 +26,7 @@
         /* ===== Estilos Base ===== */
         body {
             margin: 0;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            font-family: -apple-system, BlinkMacMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
             background: var(--color-fondo);
             color: var(--color-texto);
             display: flex;
@@ -294,14 +294,13 @@
 <body>
 
 <div id="config">
-  <header>
-    <img src="icono aplicacion.png" alt="Icono Teleprompter Pro" style="width: 50px; height: 50px; vertical-align: middle; margin-right: 1rem;">
-    <h1>Teleprompter Pro</h1>
+    <header>
+        <img src="icono aplicacion.png" alt="Icono Teleprompter Pro" style="width: 50px; height: 50px; vertical-align: middle; margin-right: 1rem;">
+        <h1>Teleprompter Pro</h1>
 </header>
 
     <div class="tab-container" id="tabContainer">
-        <!-- Las pestañas se generarán dinámicamente -->
-    </div>
+        </div>
 
     <div class="button-group">
         <button class="btn-secondary" onclick="renameTab()">Renombrar Pestaña</button>
@@ -390,6 +389,11 @@
     window.onload = () => {
         loadStateFromLocal();
         setupEventListeners();
+        // Añadir el listener para salir de pantalla completa con Esc
+        document.addEventListener('fullscreenchange', handleFullscreenChange);
+        document.addEventListener('webkitfullscreenchange', handleFullscreenChange); // Para navegadores basados en WebKit
+        document.addEventListener('mozfullscreenchange', handleFullscreenChange); // Para Firefox
+        document.addEventListener('MSFullscreenChange', handleFullscreenChange); // Para IE/Edge
     };
 
     // --- MANEJO DEL ALMACENAMIENTO LOCAL ---
@@ -561,7 +565,7 @@
     // --- LÓGICA DEL TELEPROMPTER ---
 
     /**
-     * Inicia la secuencia del teleprompter.
+     * Inicia la secuencia del teleprompter y entra en modo pantalla completa.
      */
     function startTeleprompter() {
         const text = appState.tabs[appState.activeTab].text;
@@ -584,11 +588,17 @@
         ui.scrollText.style.fontStyle = settings.fontStyle === 'italic' ? 'italic' : 'normal';
         ui.scrollText.style.textDecoration = settings.fontStyle === 'underline' ? 'underline' : 'none';
         ui.scrollText.style.transform = settings.mirror ? 'scaleX(-1)' : 'scaleX(1)';
-        ui.scrollText.style.bottom = `-${ui.scrollText.offsetHeight}px`;
         
+        // Calcular la posición inicial para que el texto comience fuera de la vista
+        // Ajustamos al alto real del contenido del texto
+        ui.scrollText.style.bottom = `-${ui.scrollText.offsetHeight}px`;
+
         let wait = settings.waitTime;
         ui.countdown.style.display = 'flex';
         ui.countdown.textContent = wait > 0 ? wait : '';
+
+        // Intenta ir a pantalla completa
+        requestFullscreen(document.documentElement); // Solicita pantalla completa para todo el documento
 
         function countdownTick() {
             if (wait > 0) {
@@ -608,14 +618,18 @@
      * Inicia la animación de desplazamiento del texto.
      */
     function startScrolling() {
-        let position = -ui.scrollText.offsetHeight;
+        // Asegúrate de que la posición inicial se calcule *después* de que el texto tenga su tamaño final
+        let position = -ui.scrollText.offsetHeight; 
         const speed = appState.settings.speed;
 
         function scrollStep() {
-            position += speed / 60; // Ajustado a 60 FPS
+            // La velocidad se mide en px/s, así que para un frame, es speed / 60 (para 60 FPS)
+            position += speed / 60; 
             ui.scrollText.style.bottom = `${position}px`;
 
-            if (position < window.innerHeight) {
+            // Si la parte inferior del texto es visible en la ventana, sigue animando
+            // La condición ahora verifica si la parte superior del texto ha salido completamente de la vista
+            if (position < window.innerHeight + ui.scrollText.offsetHeight) {
                 scrollAnimation = requestAnimationFrame(scrollStep);
             } else {
                 stopTeleprompter();
@@ -623,17 +637,68 @@
         }
         
         scrollAnimation = requestAnimationFrame(scrollStep);
-        ui.scrollArea.onclick = stopTeleprompter;
+        ui.scrollArea.onclick = stopTeleprompter; // Permite detener al hacer clic en cualquier parte
     }
 
     /**
      * Detiene el teleprompter y vuelve a la pantalla de configuración.
+     * También sale del modo pantalla completa.
      */
     function stopTeleprompter() {
         cancelAnimationFrame(scrollAnimation);
+        exitFullscreen(); // Sale de pantalla completa
         ui.scrollArea.style.display = 'none';
         ui.configPanel.style.display = 'block';
-        ui.scrollArea.onclick = null;
+        ui.scrollArea.onclick = null; // Elimina el evento para evitar disparos accidentales
+    }
+
+    // --- FUNCIONES DE PANTALLA COMPLETA ---
+
+    /**
+     * Solicita el modo de pantalla completa para un elemento dado.
+     * @param {HTMLElement} element - El elemento que se pondrá en pantalla completa.
+     */
+    function requestFullscreen(element) {
+        if (element.requestFullscreen) {
+            element.requestFullscreen();
+        } else if (element.webkitRequestFullscreen) { /* Safari */
+            element.webkitRequestFullscreen();
+        } else if (element.mozRequestFullScreen) { /* Firefox */
+            element.mozRequestFullScreen();
+        } else if (element.msRequestFullscreen) { /* IE11 */
+            element.msRequestFullscreen();
+        }
+    }
+
+    /**
+     * Sale del modo de pantalla completa.
+     */
+    function exitFullscreen() {
+        if (document.exitFullscreen) {
+            document.exitFullscreen();
+        } else if (document.webkitExitFullscreen) { /* Safari */
+            document.webkitExitFullscreen();
+        } else if (document.mozCancelFullScreen) { /* Firefox */
+            document.mozCancelFullScreen();
+        } else if (document.msExitFullscreen) { /* IE11 */
+            document.msExitFullscreen();
+        }
+    }
+
+    /**
+     * Maneja el evento de cambio de pantalla completa.
+     * Si se sale de pantalla completa (por ejemplo, con la tecla Esc), detiene el teleprompter.
+     */
+    function handleFullscreenChange() {
+        if (!document.fullscreenElement &&    // Estándar
+            !document.webkitFullscreenElement && // Safari
+            !document.mozFullScreenElement &&    // Firefox
+            !document.msFullscreenElement) {     // IE/Edge
+            // Si no estamos en modo pantalla completa y el teleprompter está activo
+            if (ui.scrollArea.style.display === 'flex') {
+                stopTeleprompter();
+            }
+        }
     }
 
     // --- MODAL PERSONALIZADO ---
